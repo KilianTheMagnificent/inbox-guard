@@ -582,10 +582,14 @@ function checkCleanedCssDeclarations(css) {
     const ch = i < len ? css[i] : ";";
     if (quoteChar) {
       if (ch === "\\" && i + 1 < len) {
-        i += 1;
+        if (css[i + 1] === "\r" && css[i + 2] === "\n") i += 2;
+        else i += 1;
         continue;
       }
-      if (ch === quoteChar) quoteChar = "";
+      // CSS Syntax Level 3 §4.3.4: unescaped newline terminates an unclosed <bad-string-token>
+      if (ch === quoteChar || ch === "\n" || ch === "\r" || ch === "\f") {
+        quoteChar = "";
+      }
       continue;
     }
     if (ch === '"' || ch === "'") {
@@ -716,11 +720,38 @@ function containsHiddenCssDeclaration(rawCss) {
   return false;
 }
 
+function trimCssCdoCdcAndSpace(raw) {
+  let s = 0;
+  let e = raw.length;
+  while (s < e) {
+    if (isCssSpace(raw.charCodeAt(s))) s += 1;
+    else if (raw.startsWith("<!--", s)) s += 4;
+    else if (raw.startsWith("-->", s)) s += 3;
+    else break;
+  }
+  while (e > s) {
+    if (isCssSpace(raw.charCodeAt(e - 1))) e -= 1;
+    else if (e - s >= 4 && raw.slice(e - 4, e) === "<!--") e -= 4;
+    else if (e - s >= 3 && raw.slice(e - 3, e) === "-->") e -= 3;
+    else break;
+  }
+  return raw.slice(s, e);
+}
 function scanCleanedStylesheetRules(css) {
   let i = 0;
   const len = css.length;
   while (i < len) {
-    while (i < len && (isCssSpace(css.charCodeAt(i)) || css[i] === ";")) i += 1;
+    while (i < len) {
+      if (isCssSpace(css.charCodeAt(i)) || css[i] === ";") {
+        i += 1;
+      } else if (css.startsWith("<!--", i)) {
+        i += 4;
+      } else if (css.startsWith("-->", i)) {
+        i += 3;
+      } else {
+        break;
+      }
+    }
     if (i >= len) break;
 
     // Scan rule prelude up to '{' or ';' (for @import/@charset)
@@ -730,8 +761,12 @@ function scanCleanedStylesheetRules(css) {
     while (i < len) {
       const ch = css[i];
       if (quoteChar) {
-        if (ch === "\\" && i + 1 < len) i += 1;
-        else if (ch === quoteChar) quoteChar = "";
+        if (ch === "\\" && i + 1 < len) {
+          if (css[i + 1] === "\r" && css[i + 2] === "\n") i += 2;
+          else i += 1;
+        } else if (ch === quoteChar || ch === "\n" || ch === "\r" || ch === "\f") {
+          quoteChar = "";
+        }
       } else if (ch === '"' || ch === "'") {
         quoteChar = ch;
       } else if (ch === "(") {
@@ -750,7 +785,7 @@ function scanCleanedStylesheetRules(css) {
       continue;
     }
 
-    const prelude = css.slice(preludeStart, i).trim().toLowerCase();
+    const prelude = trimCssCdoCdcAndSpace(css.slice(preludeStart, i)).toLowerCase();
     const blockStart = i + 1;
     let braceDepth = 1;
     i += 1;
@@ -758,8 +793,12 @@ function scanCleanedStylesheetRules(css) {
     while (i < len && braceDepth > 0) {
       const ch = css[i];
       if (quoteChar) {
-        if (ch === "\\" && i + 1 < len) i += 1;
-        else if (ch === quoteChar) quoteChar = "";
+        if (ch === "\\" && i + 1 < len) {
+          if (css[i + 1] === "\r" && css[i + 2] === "\n") i += 2;
+          else i += 1;
+        } else if (ch === quoteChar || ch === "\n" || ch === "\r" || ch === "\f") {
+          quoteChar = "";
+        }
       } else if (ch === '"' || ch === "'") {
         quoteChar = ch;
       } else if (ch === "{") {
@@ -863,8 +902,21 @@ function extractStyleBlocks(html) {
       cursor = lt + 6;
       continue;
     }
-    const openEnd = lower.indexOf(">", lt + 6);
-    if (openEnd === -1) break;
+    let openEnd = lt + 6;
+    while (openEnd < html.length && lower[openEnd] !== ">") {
+      const q = lower[openEnd];
+      if (q === '"' || q === "'") {
+        const closeQ = lower.indexOf(q, openEnd + 1);
+        if (closeQ === -1) {
+          openEnd = html.length;
+          break;
+        }
+        openEnd = closeQ + 1;
+      } else {
+        openEnd += 1;
+      }
+    }
+    if (openEnd >= html.length) break;
     const closeStart = lower.indexOf("</style", openEnd + 1);
     if (closeStart === -1) {
       blocks.push(html.slice(openEnd + 1));
@@ -1085,6 +1137,25 @@ function extractDomainFromAddress(addr) {
   return null;
 }
 
+function scanRfc2047WordEnd(str, pos) {
+  const len = str.length;
+  if (pos + 8 > len || str[pos] !== "=" || str[pos + 1] !== "?") return -1;
+  let k = pos + 2;
+  const csStart = k;
+  while (k < len && /[A-Za-z0-9_-]/.test(str[k])) k += 1;
+  if (k === csStart || k + 3 >= len || str[k] !== "?") return -1;
+  const enc = str[k + 1];
+  if ((enc !== "B" && enc !== "b" && enc !== "Q" && enc !== "q") || str[k + 2] !== "?") {
+    return -1;
+  }
+  k += 3;
+  while (k < len && str[k] !== "?" && !/\s/.test(str[k])) k += 1;
+  if (k + 1 < len && str[k] === "?" && str[k + 1] === "=") {
+    return k + 2;
+  }
+  return -1;
+}
+
 function splitTopLevelMailboxes(header) {
   const items = [];
   let start = 0;
@@ -1097,6 +1168,13 @@ function splitTopLevelMailboxes(header) {
     if (ch === "\\" && (inQuotes || commentDepth > 0)) {
       i += 1;
       continue;
+    }
+    if (!inQuotes && commentDepth === 0 && angleDepth === 0 && ch === "=") {
+      const wordEnd = scanRfc2047WordEnd(header, i);
+      if (wordEnd !== -1) {
+        i = wordEnd - 1;
+        continue;
+      }
     }
     if (commentDepth === 0 && ch === '"') {
       inQuotes = !inQuotes;
@@ -1124,13 +1202,12 @@ function splitTopLevelMailboxes(header) {
 }
 
 /**
- * Parse a single RFC 5322 mailbox token, distinguishing quoted display strings,
- * `(comment)` blocks, `<angle-addr>` specifications, and bare `addr-spec` tokens
- * so `attacker@evil.example (ceo@company.com)` resolves `address = "attacker@evil.example"`
- * and exposes `(ceo@company.com)` in `displayLabel` for spoof inspection.
+ * Parse a single RFC 5322 mailbox token on the raw (pre-RFC-2047-decoded) header so
+ * encoded-words (`=?UTF-8?Q?"?=`) can never inject quotes, comments, or `<angle-addr>`
+ * delimiters, then decode RFC 2047 words strictly inside display-label/comment parts.
  */
 function parseSingleMailbox(rawItem) {
-  const cleaned = decodeRfc2047Words(rawItem).replace(INVISIBLE_UNICODE_RE, "");
+  const cleaned = rawItem.replace(INVISIBLE_UNICODE_RE, "");
   let inQuotes = false;
   let commentDepth = 0;
   let angleStart = -1;
@@ -1178,6 +1255,15 @@ function parseSingleMailbox(rawItem) {
       continue;
     }
 
+    if (angleStart === -1 && ch === "=") {
+      const wordEnd = scanRfc2047WordEnd(cleaned, i);
+      if (wordEnd !== -1) {
+        bareOutside += cleaned.slice(i, wordEnd);
+        i = wordEnd - 1;
+        continue;
+      }
+    }
+
     if (ch === '"') {
       inQuotes = true;
       quoteBuf = "";
@@ -1220,8 +1306,13 @@ function parseSingleMailbox(rawItem) {
   if (angles.length > 0) {
     const primary = angles[angles.length - 1];
     const address = primary.content.toLowerCase();
-    const earlierAngles = angles.slice(0, -1).map((a) => a.content);
-    const displayLabel = [bareOutside.trim(), ...quotedStrings, ...earlierAngles, ...comments]
+    const earlierAngles = angles.slice(0, -1).map((a) => decodeRfc2047Words(a.content));
+    const displayLabel = [
+      decodeRfc2047Words(bareOutside).trim(),
+      ...quotedStrings.map(decodeRfc2047Words),
+      ...earlierAngles,
+      ...comments.map(decodeRfc2047Words)
+    ]
       .filter(Boolean)
       .join(" ")
       .trim();
@@ -1232,7 +1323,13 @@ function parseSingleMailbox(rawItem) {
     };
   }
 
-  const bareMatches = bareOutside.includes("@") ? bareOutside.match(HEADER_EMAIL_TOKEN_RE) : null;
+  const bareWithoutEncodedWords = bareOutside.replace(
+    /=\?[A-Za-z0-9_-]+\?[BbQq]\?[^?\s]*\?=/g,
+    " "
+  );
+  const bareMatches = bareWithoutEncodedWords.includes("@")
+    ? bareWithoutEncodedWords.match(HEADER_EMAIL_TOKEN_RE)
+    : null;
   const address = bareMatches ? bareMatches[0].toLowerCase() : "";
   let residualOutside = bareOutside;
   if (bareMatches) {
@@ -1242,7 +1339,11 @@ function parseSingleMailbox(rawItem) {
         residualOutside.slice(0, firstIdx) + residualOutside.slice(firstIdx + bareMatches[0].length);
     }
   }
-  const displayLabel = [residualOutside.trim(), ...quotedStrings, ...comments]
+  const displayLabel = [
+    decodeRfc2047Words(residualOutside).trim(),
+    ...quotedStrings.map(decodeRfc2047Words),
+    ...comments.map(decodeRfc2047Words)
+  ]
     .filter(Boolean)
     .join(" ")
     .trim();
@@ -1257,8 +1358,7 @@ function parseSingleMailbox(rawItem) {
 function parseMailboxList(rawHeader) {
   const str = String(rawHeader ?? "");
   if (!str.trim()) return [];
-  const preDecoded = decodeRfc2047Words(str);
-  return splitTopLevelMailboxes(preDecoded).map(parseSingleMailbox);
+  return splitTopLevelMailboxes(str).map(parseSingleMailbox);
 }
 
 function findSpoofedDisplayEmail(displayLabel, actualAddress) {

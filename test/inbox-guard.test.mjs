@@ -125,6 +125,29 @@ test("checkAttachment catches Windows/SMB trailing dots/spaces, fillers, dot-lea
   assert.ok(adsData.findings.some((f) => f.code === "NTFS_ADS_FILENAME"));
   assert.ok(adsData.findings.some((f) => f.code === "BLOCKED_EXTENSION"));
 
+  const trailingColon = checkAttachment({ filename: "invoice.exe:" });
+  assert.equal(trailingColon.safe, false);
+  assert.ok(trailingColon.findings.some((f) => f.code === "NTFS_ADS_FILENAME"));
+  assert.ok(trailingColon.findings.some((f) => f.code === "BLOCKED_EXTENSION"));
+
+  const conColon = checkAttachment({ filename: "CON:.pdf" });
+  assert.equal(conColon.safe, false);
+  assert.ok(conColon.findings.some((f) => f.code === "NTFS_ADS_FILENAME"));
+  assert.ok(conColon.findings.some((f) => f.code === "WINDOWS_RESERVED_FILENAME"));
+
+  for (const illegalExt of ['invoice.exe"', "invoice.exe>", "invoice.exe?", "invoice.exe*", "invoice.exe|"]) {
+    const r = checkAttachment({ filename: illegalExt });
+    assert.equal(r.safe, false, `Expected '${illegalExt}' to be rejected`);
+    assert.ok(r.findings.some((f) => f.code === "INVALID_FILENAME_CHARS"));
+    assert.ok(r.findings.some((f) => f.code === "MALFORMED_EXTENSION"));
+    assert.ok(r.findings.some((f) => f.code === "BLOCKED_EXTENSION"));
+  }
+
+  const versionedExe = checkAttachment({ filename: "invoice.exe;1" });
+  assert.equal(versionedExe.safe, false);
+  assert.ok(versionedExe.findings.some((f) => f.code === "MALFORMED_EXTENSION"));
+  assert.ok(versionedExe.findings.some((f) => f.code === "BLOCKED_EXTENSION"));
+
   const traversal = checkAttachment({ filename: "../../etc/cron.d/backdoor.pdf" });
   assert.equal(traversal.safe, false);
   assert.ok(traversal.findings.some((f) => f.code === "PATH_TRAVERSAL_FILENAME"));
@@ -335,7 +358,11 @@ test("inspectInboundEmail handles HTML5 malformed comments, zero-padded entities
     '<span style="content-visibility:hidden">x</span>',
     '<span style="color:#fff;background:#fff">x</span>',
     "<details><summary>Terms</summary>Hidden clause</details>",
-    "<style>.veil { visibility: /* comment */ hidden; }</style><p class='veil'>secret</p>"
+    "<style>.veil { visibility: /* comment */ hidden; }</style><p class='veil'>secret</p>",
+    '<style title="a>b">.x { display: none }</style><span class="x">hello</span>',
+    '<style>.a { content: "bad\n} .x { display: none }</style><span class="x">hello</span>',
+    "<span style='font-family: \"bad\n; display: none'>hello</span>",
+    '<style><!-- @media screen { .x { display: none } } --></style><span class="x">hello</span>'
   ]) {
     const check = inspectInboundEmail({ from: "ap@vendor.example", html: snippet });
     assert.ok(
@@ -344,17 +371,18 @@ test("inspectInboundEmail handles HTML5 malformed comments, zero-padded entities
     );
   }
 
-  // Benign CSS and responsive @media rules must NOT false-positive
+  // Benign CSS and responsive @media rules (including CDO/CDC wrapped) must NOT false-positive
   for (const safeHtml of [
     '<span style="opacity:0.8; font-size:0.75em">Monthly statement</span>',
     "<details open><summary>Terms</summary>Visible clause</details>",
-    "<style>@media only screen and (max-width:600px){.desktop{display:none!important}}</style><p>Monthly statement</p>"
+    "<style>@media only screen and (max-width:600px){.desktop{display:none!important}}</style><p>Monthly statement</p>",
+    "<style><!-- @media only screen and (max-width:600px){.desktop{display:none!important}} --></style><p>Monthly statement</p>"
   ]) {
     const res = inspectInboundEmail({ from: "ap@vendor.example", html: safeHtml });
     assert.equal(res.safe, true, `Unexpected false positive on: ${safeHtml}`);
   }
 
-  // RFC 5322 From display-name & comment spoofing + homoglyphs + fullwidth + spaced '@' + entities
+  // RFC 5322 From display-name & comment spoofing + homoglyphs + fullwidth + spaced '@' + entities + RFC 2047 delimiter-injection defense
   for (const spoofedFrom of [
     '"ceo@company.com" <attacker@evil.example>',
     '"ceo@c\u043Empany.com" <attacker@evil.example>',
@@ -362,7 +390,8 @@ test("inspectInboundEmail handles HTML5 malformed comments, zero-padded entities
     '"ceo @ company.com" <attacker@evil.example>',
     '"ceo&#64;company.com" <attacker@evil.example>',
     "attacker@evil.example (ceo@company.com)",
-    "=?UTF-8?Q?ceo=40company.com?= <attacker@evil.example>"
+    "=?UTF-8?Q?ceo=40company.com?= <attacker@evil.example>",
+    '"ceo@company.com" <attacker@evil.example> =?UTF-8?Q?<ceo=40company.com>?='
   ]) {
     const spoofRes = inspectInboundEmail({ from: spoofedFrom, text: "Hello" });
     assert.ok(
@@ -371,13 +400,18 @@ test("inspectInboundEmail handles HTML5 malformed comments, zero-padded entities
     );
   }
 
-  // Multi-address Reply-To & From comment + Reply-To mismatch
-  const multiReply = inspectInboundEmail({
-    from: "ap@vendor.example",
-    replyTo: "<ap@vendor.example>, collector@evil.example",
-    text: "hi"
-  });
-  assert.ok(multiReply.findings.some((f) => f.code === "REPLY_TO_DOMAIN_MISMATCH"));
+  // Multi-address Reply-To, RFC 2047 quote/paren injection defenses, & From comment + Reply-To mismatch
+  for (const hdrs of [
+    { from: "ap@vendor.example", replyTo: "<ap@vendor.example>, collector@evil.example" },
+    { from: "ap@vendor.example", replyTo: '=?UTF-8?Q?"?= <collector@evil.example>, ap@vendor.example' },
+    { from: "=?UTF-8?Q?(=?= <attacker@evil.example>", replyTo: "collector@evil2.example" }
+  ]) {
+    const rtRes = inspectInboundEmail({ ...hdrs, text: "hi" });
+    assert.ok(
+      rtRes.findings.some((f) => f.code === "REPLY_TO_DOMAIN_MISMATCH"),
+      `Expected REPLY_TO_DOMAIN_MISMATCH for: ${JSON.stringify(hdrs)}`
+    );
+  }
 
   const commentReply = inspectInboundEmail({
     from: "attacker@evil.example (ceo@company.com)",

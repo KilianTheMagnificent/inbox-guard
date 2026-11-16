@@ -152,24 +152,42 @@ function extractNormalizedParts(segment) {
 }
 
 /**
- * Detect genuine NTFS Alternate Data Stream syntax (`invoice.pdf:evil.exe`, `file.exe::$DATA`)
- * without false-positiving on benign human filenames containing spaces around colons (`A: Smith.pdf`)
- * or numeric timestamps (`Invoice 10:30.pdf`).
+ * Detect NTFS Alternate Data Stream or device-colon syntax (`invoice.pdf:evil.exe`,
+ * `file.exe::$DATA`, `invoice.exe:`, `CON:.pdf`) without false-positiving on benign
+ * human filenames containing spaces after colons (`A: Smith.pdf`) or numeric timestamps
+ * (`Invoice 10:30.pdf`).
  */
 function findNtfsAdsColonIndex(rawBase) {
   if (!rawBase.includes(":")) return -1;
   const doubleColon = rawBase.indexOf("::");
   if (doubleColon !== -1) return doubleColon;
 
-  // Strip a leading drive letter (`C:...`) before inspecting stream colons
+  // Strip a leading single-letter Windows drive prefix (`C:...`) before inspecting colons
   const startOffset = /^[A-Za-z]:(?!\s)/.test(rawBase) ? 2 : 0;
   for (let i = startOffset; i < rawBase.length; i++) {
     if (rawBase[i] !== ":") continue;
-    const next = rawBase[i + 1];
-    if (!next || /\s/u.test(next)) continue;
-
-    // Pattern 1: `.ext:stream` (e.g. `invoice.pdf:evil.exe` or `doc.txt:123`)
     const before = rawBase.slice(startOffset, i);
+    const after = rawBase.slice(i + 1);
+
+    // Reserved Windows DOS device followed by ':' (`CON:.pdf`, `CON: x.pdf`, `NUL:`)
+    const beforeStem = normalizeSeparatorsAndControls(before)
+      .split(".")[0]
+      .replace(/[^A-Za-z0-9\u00b9\u00b2\u00b3]/g, "");
+    if (beforeStem && WINDOWS_RESERVED_STEM_RE.test(beforeStem)) {
+      return i;
+    }
+
+    // Trailing ':' (`invoice.exe:`)
+    if (after.length === 0) {
+      return i;
+    }
+
+    // Benign prose colon followed by whitespace (`A: Smith invoice.pdf`, `Re: Q4.pdf`)
+    if (/^\s/u.test(after)) {
+      continue;
+    }
+
+    // `.ext:stream` immediately before ':' (`invoice.pdf:evil.exe`, `doc.txt:30`)
     const dotIdx = before.lastIndexOf(".");
     if (dotIdx !== -1 && i - dotIdx - 1 >= 1 && i - dotIdx - 1 <= 16) {
       const maybeExt = before.slice(dotIdx + 1);
@@ -178,10 +196,12 @@ function findNtfsAdsColonIndex(rawBase) {
       }
     }
 
-    // Pattern 2: `stem:stream` where stream starts with ASCII letter or '$' (excludes `10:30`)
-    if (i > startOffset && /[A-Za-z0-9_.)\]]/.test(rawBase[i - 1]) && /[A-Za-z_$]/.test(next)) {
-      return i;
+    // Benign numeric timestamp (`Invoice 10:30.pdf`, `Scan 09:15:00.pdf`)
+    if (/\d$/.test(before) && /^\d{2}(?::\d{2})?(?![0-9A-Za-z_$])/.test(after)) {
+      continue;
     }
+
+    return i;
   }
   return -1;
 }
@@ -357,16 +377,28 @@ export function checkAttachment({ filename, headBytes } = {}) {
     });
   }
 
+  if (/[<>"|?*]/.test(rawName)) {
+    findings.push({
+      code: "INVALID_FILENAME_CHARS",
+      severity: "high",
+      detail: 'Filename contains Windows/shell illegal wildcard, redirection, or quote characters (<, >, ", |, ?, *).'
+    });
+  }
+
   const normalizedForStem = normalizeSeparatorsAndControls(baseWithoutAds).trim();
   const firstDotInStem = normalizedForStem.indexOf(".");
-  const primaryStem = (
+  const rawStem = (
     firstDotInStem === -1 ? normalizedForStem : normalizedForStem.slice(0, firstDotInStem)
   ).trim();
-  if (primaryStem && WINDOWS_RESERVED_STEM_RE.test(primaryStem)) {
+  const cleanedStem = rawStem.split(";")[0].replace(/[<>"|?*:\s]+/g, "");
+  if (
+    (rawStem && WINDOWS_RESERVED_STEM_RE.test(rawStem)) ||
+    (cleanedStem && WINDOWS_RESERVED_STEM_RE.test(cleanedStem))
+  ) {
     findings.push({
       code: "WINDOWS_RESERVED_FILENAME",
       severity: "high",
-      detail: `Filename stem '${primaryStem}' is a reserved Windows DOS/NT device name.`
+      detail: `Filename stem '${cleanedStem || rawStem}' is a reserved Windows DOS/NT device name.`
     });
   }
 
@@ -375,15 +407,46 @@ export function checkAttachment({ filename, headBytes } = {}) {
   if (
     !ext &&
     parts.length === 1 &&
-    baseWithoutAds.trimStart().startsWith(".") &&
-    (BLOCKED_EXTENSIONS.has(parts[0]) ||
-      ACTIVE_CONTENT_EXTENSIONS.has(parts[0]) ||
-      ARCHIVE_CONTAINER_EXTENSIONS.has(parts[0]))
+    baseWithoutAds.trimStart().startsWith(".")
   ) {
-    ext = parts[0];
+    const dotCandidate = parts[0].split(";")[0].replace(/[^a-z0-9-]+/g, "");
+    if (
+      BLOCKED_EXTENSIONS.has(dotCandidate) ||
+      ACTIVE_CONTENT_EXTENSIONS.has(dotCandidate) ||
+      ARCHIVE_CONTAINER_EXTENSIONS.has(dotCandidate)
+    ) {
+      ext = parts[0];
+    }
   }
 
-  // Also inspect pre-null-byte segment (`invoice.exe\x00.pdf`) and ADS stream suffix (`invoice.pdf:evil.exe`)
+  if (ext && !/^[a-z0-9][a-z0-9-]{0,31}$/.test(ext)) {
+    findings.push({
+      code: "MALFORMED_EXTENSION",
+      severity: "high",
+      detail: `File extension '.${ext}' contains non-alphanumeric punctuation or version-suffix characters.`
+    });
+    const strippedExt = ext.split(";")[0].replace(/[^a-z0-9-]+/g, "");
+    const leadingExtMatch = ext.match(/^[a-z0-9][a-z0-9-]*/);
+    const leadingExt = leadingExtMatch ? leadingExtMatch[0] : "";
+    if (
+      strippedExt &&
+      (BLOCKED_EXTENSIONS.has(strippedExt) ||
+        ACTIVE_CONTENT_EXTENSIONS.has(strippedExt) ||
+        ARCHIVE_CONTAINER_EXTENSIONS.has(strippedExt))
+    ) {
+      ext = strippedExt;
+    } else if (
+      leadingExt &&
+      (BLOCKED_EXTENSIONS.has(leadingExt) ||
+        ACTIVE_CONTENT_EXTENSIONS.has(leadingExt) ||
+        ARCHIVE_CONTAINER_EXTENSIONS.has(leadingExt))
+    ) {
+      ext = leadingExt;
+    }
+  }
+
+  // Also inspect pre-null-byte segment (`invoice.exe\x00.pdf`), ADS stream suffix (`invoice.pdf:evil.exe`),
+  // and punctuation-stripped intermediate tokens (`invoice.exe".pdf`)
   const extraExtensions = [];
   if (baseWithoutAds.includes("\x00")) {
     const preNullParts = extractNormalizedParts(
@@ -394,8 +457,23 @@ export function checkAttachment({ filename, headBytes } = {}) {
   }
   if (adsStreamSegment) {
     const streamParts = extractNormalizedParts(adsStreamSegment);
-    const streamExt = streamParts.length > 1 ? streamParts[streamParts.length - 1] : "";
-    if (streamExt && streamExt !== ext) extraExtensions.push(streamExt);
+    const streamExt =
+      streamParts.length > 1 || (streamParts.length === 1 && adsStreamSegment.trimStart().startsWith("."))
+        ? streamParts[streamParts.length - 1]
+        : "";
+    if (streamExt) {
+      const cleanStreamExt = streamExt.split(";")[0].replace(/[^a-z0-9-]+/g, "");
+      if (cleanStreamExt && cleanStreamExt !== ext) extraExtensions.push(cleanStreamExt);
+    }
+  }
+  for (let pIdx = 1; pIdx < parts.length; pIdx++) {
+    const cleanedPart = parts[pIdx].split(";")[0].replace(/[^a-z0-9-]+/g, "");
+    if (cleanedPart && cleanedPart !== ext && !extraExtensions.includes(cleanedPart)) {
+      // Only flag non-final parts if the raw part carried punctuation/illegal chars (`invoice.exe".txt`)
+      if (cleanedPart !== parts[pIdx] || pIdx === parts.length - 1) {
+        extraExtensions.push(cleanedPart);
+      }
+    }
   }
 
   if (!ext) {
