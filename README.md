@@ -1,6 +1,6 @@
 # inbox-guard
 
-[![CI](https://github.com/KilianTheMagnificent/inbox-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/KilianTheMagnificent/inbox-guard/actions/workflows/ci.yml)
+[![CI](https://github.com/KilianTheMagnificent/inbox-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/KilianTheMagnificent/inbox-guard/actions/workflows/ci.yml) [![CodeQL](https://github.com/KilianTheMagnificent/inbox-guard/actions/workflows/codeql.yml/badge.svg)](https://github.com/KilianTheMagnificent/inbox-guard/actions/workflows/codeql.yml)
 
 Zero-dependency defensive validation and deterministic PII redaction for back-office workflows that ingest untrusted business emails, attachments, and accounting CSV exports.
 
