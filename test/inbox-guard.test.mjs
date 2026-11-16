@@ -424,6 +424,7 @@ test("linear-time resilience against pathological long inputs (anti-ReDoS)", () 
     html: `<div style="display:none; ${"a:1;".repeat(8000)}`
   });
   checkAttachment({ filename: `${"a".repeat(10000)}   .pdf` });
+  isFormulaInjectionCell(`-${"\t".repeat(25000)}x`);
   const elapsedMs = performance.now() - start;
   assert.ok(elapsedMs < 500, `Expected linear scan under 500ms, took ${elapsedMs.toFixed(1)}ms`);
 });

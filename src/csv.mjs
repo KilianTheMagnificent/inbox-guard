@@ -10,6 +10,19 @@ const LEADING_CONTROL_CHAR_RE = /^[\x00-\x1F\x7F]/;
 // cell references (`-$A1`) and formulas (`-SUM(...)`, `-1+1`) are still flagged.
 const SAFE_NEGATIVE_NUMBER_RE = /^-\s?[$€£¥]?(?:\d+(?:,\d{3})*(?:\.\d+)?|\.\d+)%?$/;
 
+function trimTrailingSpaceAndQuotes(str) {
+  let end = str.length;
+  while (end > 0) {
+    const ch = str[end - 1];
+    if (ch === '"' || /\s/u.test(ch)) {
+      end -= 1;
+    } else {
+      break;
+    }
+  }
+  return str.slice(0, end);
+}
+
 /**
  * Check whether a single spreadsheet/CSV cell could trigger formula or DDE
  * execution when opened in Excel, LibreOffice Calc, or Google Sheets.
@@ -34,8 +47,8 @@ export function isFormulaInjectionCell(value, { allowNegativeNumbers = true } = 
   if (LEADING_CONTROL_CHAR_RE.test(value)) return true;
 
   if (first === "-" && allowNegativeNumbers) {
-    const candidate = stripped.replace(/[\s"]+$/, "");
-    if (SAFE_NEGATIVE_NUMBER_RE.test(candidate)) {
+    const candidate = trimTrailingSpaceAndQuotes(stripped);
+    if (candidate.length <= 64 && SAFE_NEGATIVE_NUMBER_RE.test(candidate)) {
       return false;
     }
   }
