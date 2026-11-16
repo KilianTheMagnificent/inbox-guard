@@ -1,0 +1,30 @@
+{
+  "name": "inbox-guard",
+  "version": "0.1.0",
+  "description": "Zero-dependency defensive validation and PII redaction for untrusted business emails, attachments, and CSV exports.",
+  "type": "module",
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "bin": {
+    "inbox-guard": "./bin/inbox-guard.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "keywords": [
+    "security",
+    "email-security",
+    "input-validation",
+    "csv-injection",
+    "redaction",
+    "pii",
+    "prompt-injection"
+  ],
+  "author": "Andre Romero-Carey (https://meetkestrel.com)",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
