@@ -16,21 +16,26 @@ function usage() {
 
 if (!cmd || !arg) usage();
 
-if (cmd === "check-attachment") {
-  const bytes = readFileSync(arg);
-  const filename = arg.split(/[/\\]/).pop() ?? arg;
-  const result = checkAttachment({ filename, headBytes: bytes.subarray(0, 512) });
-  console.log(JSON.stringify(result, null, 2));
-  process.exit(result.safe ? 0 : 2);
-} else if (cmd === "inspect-email") {
-  const payload = JSON.parse(readFileSync(arg, "utf8"));
-  const result = inspectInboundEmail(payload);
-  console.log(JSON.stringify(result, null, 2));
-  process.exit(result.safe ? 0 : 2);
-} else if (cmd === "redact") {
-  const raw = readFileSync(arg, "utf8");
-  const redactor = createRedactor();
-  console.log(redactor.redact(raw));
-} else {
-  usage();
+try {
+  if (cmd === "check-attachment") {
+    const bytes = readFileSync(arg);
+    const filename = arg.split(/[/\\]/).pop() ?? arg;
+    const result = checkAttachment({ filename, headBytes: bytes.subarray(0, 4096) });
+    console.log(JSON.stringify(result, null, 2));
+    process.exit(result.safe ? 0 : 2);
+  } else if (cmd === "inspect-email") {
+    const payload = JSON.parse(readFileSync(arg, "utf8"));
+    const result = inspectInboundEmail(payload);
+    console.log(JSON.stringify(result, null, 2));
+    process.exit(result.safe ? 0 : 2);
+  } else if (cmd === "redact") {
+    const raw = readFileSync(arg, "utf8");
+    const redactor = createRedactor();
+    console.log(redactor.redact(raw));
+  } else {
+    usage();
+  }
+} catch (err) {
+  console.error(`inbox-guard error: ${err instanceof Error ? err.message : String(err)}`);
+  process.exit(1);
 }
