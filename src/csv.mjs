@@ -1,20 +1,36 @@
-const FORMULA_TRIGGERS = new Set(["=", "+", "-", "@"]);
+const BASE_FORMULA_TRIGGERS = new Set([
+  "=", "+", "-", "@",
+  "\uFF1D", // Fullwidth '='
+  "\uFF0B", // Fullwidth '+'
+  "\uFF0D", // Fullwidth '-'
+  "\uFF20", // Fullwidth '@'
+  "\uFE66", // Small '='
+  "\uFE62", // Small '+'
+  "\uFE63", // Small '-'
+  "\uFE6B"  // Small '@'
+]);
 
-// Leading ASCII control chars (including \t, \n, \x0B vertical tab, \x0C form feed, \r, \x00),
-// spaces, NBSP, BOM, and leading double quotes (`"=CMD..."`).
-const LEADING_CONTROL_OR_QUOTE_RE = /^[\x00-\x20\u00A0\uFEFF"]+/;
-const LEADING_CONTROL_CHAR_RE = /^[\x00-\x1F\x7F]/;
+// Leading ASCII/C1 controls (\x00-\x20, \x7F-\x9F), Unicode whitespace (\s: NBSP, ideographic space
+// U+3000, line/paragraph separators U+2028/U+2029, etc.), invisible/zero-width/bidi/filler format
+// characters (U+200B..U+200F, U+FEFF, U+3164, U+FE00..U+FE0F), and leading double quotes (`"=1+1"`).
+const LEADING_CONTROL_SPACE_OR_QUOTE_RE =
+  /^[\x00-\x20\x7F-\x9F\s\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180E\u200B-\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB"]+/u;
 
-// Negative numeric balances with optional currency symbol ($, €, £, ¥), thousands commas,
-// decimal fraction, and percent sign. Excludes letters, colons, parens, and operators so
-// cell references (`-$A1`) and formulas (`-SUM(...)`, `-1+1`) are still flagged.
-const SAFE_NEGATIVE_NUMBER_RE = /^-\s?[$€£¥]?(?:\d+(?:,\d{3})*(?:\.\d+)?|\.\d+)%?$/;
+const LEADING_UNSAFE_CONTROL_OR_INVISIBLE_RE =
+  /^[\x00-\x1F\x7F-\x9F\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180E\u200B-\u200F\u2028-\u202E\u2060-\u206F\u2800\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB]/u;
+
+// Negative numeric balances with optional currency symbol ($, €, £, ¥, ₩, ₹), thousands grouping,
+// decimal fraction, scientific exponent (`-1.5E3`), and trailing currency/% sign. Uses literal
+// ASCII space (0x20) rather than `\s` so `-\n1+1` and `-\t=1+1` are never exempted, and excludes
+// operators/parens/colons/letters so `-$A1`, `-SUM(...)`, and `-1+1` are always flagged.
+const SAFE_NEGATIVE_NUMBER_RE =
+  /^-\x20?[$€£¥₩₹]?\x20?(?:\d{1,3}(?:[,.\x20]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?|\.\d+)(?:[eE]\d{1,3})?\x20?[$€£¥₩₹%]?$/;
 
 function trimTrailingSpaceAndQuotes(str) {
   let end = str.length;
   while (end > 0) {
     const ch = str[end - 1];
-    if (ch === '"' || /\s/u.test(ch)) {
+    if (ch === '"' || ch === " ") {
       end -= 1;
     } else {
       break;
@@ -27,28 +43,34 @@ function trimTrailingSpaceAndQuotes(str) {
  * Check whether a single spreadsheet/CSV cell could trigger formula or DDE
  * execution when opened in Excel, LibreOffice Calc, or Google Sheets.
  *
- * Covers OWASP CSV Injection triggers (`=`, `+`, `-`, `@`), leading control/whitespace
- * prefixes (`\t`, `\r`, `\n`, `\x0B` vertical tab, `\x0C` form feed, `\x00`, BOM, NBSP),
- * and quote-wrapped triggers (`"=CMD..."`).
+ * Covers OWASP CSV Injection triggers (`=`, `+`, `-`, `@`, `|`, plus fullwidth/small
+ * Unicode variants `＝`, `＋`, `－`, `＠`), leading control/Unicode-whitespace/invisible
+ * prefixes (`\t`, `\r`, `\n`, `\x0B`, `\x0C`, `\x7F`, NBSP, `U+3000`, `U+200B`, `U+2028`,
+ * `U+FEFF`), and quote-wrapped triggers (`"=CMD..."`).
  *
- * Negative accounting numbers (`-142.50`, `-1,200.00`, `-$1,250.00`) and parenthesized
- * balances (`($1,250.00)`) are allowed by default so financial exports are not corrupted.
+ * Negative accounting numbers (`-142.50`, `-$1,250.00`, `-1,250.00€`, `-.50`, `-12.5%`)
+ * and parenthesized balances (`($1,250.00)`) are allowed by default so financial exports
+ * are not corrupted.
  */
-export function isFormulaInjectionCell(value, { allowNegativeNumbers = true } = {}) {
+export function isFormulaInjectionCell(
+  value,
+  { allowNegativeNumbers = true, allowPipeTrigger = false } = {}
+) {
   if (typeof value !== "string" || value.length === 0) return false;
 
-  const stripped = value.replace(LEADING_CONTROL_OR_QUOTE_RE, "");
+  const stripped = value.replace(LEADING_CONTROL_SPACE_OR_QUOTE_RE, "");
   if (stripped.length === 0) return false;
 
   const first = stripped[0];
-  if (!FORMULA_TRIGGERS.has(first)) return false;
+  const isTrigger = BASE_FORMULA_TRIGGERS.has(first) || (!allowPipeTrigger && first === "|");
+  if (!isTrigger) return false;
 
-  // Never exempt `-` when preceded by ASCII control characters (\t, \r, \n, \x0B, \x0C, etc.)
-  if (LEADING_CONTROL_CHAR_RE.test(value)) return true;
+  // Never exempt `-` when preceded by control characters, line separators, or invisible format chars
+  if (LEADING_UNSAFE_CONTROL_OR_INVISIBLE_RE.test(value)) return true;
 
   if (first === "-" && allowNegativeNumbers) {
     const candidate = trimTrailingSpaceAndQuotes(stripped);
-    if (candidate.length <= 64 && SAFE_NEGATIVE_NUMBER_RE.test(candidate)) {
+    if (candidate.length <= 128 && SAFE_NEGATIVE_NUMBER_RE.test(candidate)) {
       return false;
     }
   }
@@ -111,7 +133,8 @@ export function sanitizeCsvRows(rows, options = {}) {
 /**
  * Serialize a single array of CSV cells into an RFC-4180-compliant row string
  * (without a trailing line break). Cells are sanitized with `sanitizeCsvCell`
- * by default unless `{ sanitize: false }` is passed.
+ * by default unless `{ sanitize: false }` is passed, and single-quote-neutralized
+ * formula cells are enclosed in double quotes per OWASP CSV guidance.
  */
 export function serializeCsvRow(row, options = {}) {
   if (!Array.isArray(row)) {
@@ -123,7 +146,11 @@ export function serializeCsvRow(row, options = {}) {
     .map((cell) => {
       const raw = cell === null || cell === undefined ? "" : String(cell);
       const val = sanitize ? sanitizeCsvCell(raw, sanitizeOptions) : raw;
-      if (/[,"\r\n\t\x0B\x0C]/.test(val) || val !== val.trim()) {
+      if (
+        /[,"\r\n\t\x0B\x0C\u2028\u2029]/.test(val) ||
+        val.startsWith("'") ||
+        val !== val.trim()
+      ) {
         return `"${val.replaceAll('"', '""')}"`;
       }
       return val;

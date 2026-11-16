@@ -4,13 +4,19 @@ import { checkAttachment, inspectInboundEmail, createRedactor } from "../src/ind
 
 const [cmd, arg] = process.argv.slice(2);
 
+const USAGE_TEXT =
+  "Usage:\n" +
+  "  inbox-guard check-attachment <path>\n" +
+  "  inbox-guard inspect-email <json-file>\n" +
+  "  inbox-guard redact <text-file>";
+
+if (cmd === "--help" || cmd === "-h") {
+  console.log(USAGE_TEXT);
+  process.exit(0);
+}
+
 function usage() {
-  console.error(
-    "Usage:\n" +
-      "  inbox-guard check-attachment <path>\n" +
-      "  inbox-guard inspect-email <json-file>\n" +
-      "  inbox-guard redact <text-file>"
-  );
+  console.error(USAGE_TEXT);
   process.exit(1);
 }
 
@@ -25,6 +31,9 @@ try {
     process.exit(result.safe ? 0 : 2);
   } else if (cmd === "inspect-email") {
     const payload = JSON.parse(readFileSync(arg, "utf8"));
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+      throw new TypeError("Email JSON file must contain a JSON object.");
+    }
     const result = inspectInboundEmail(payload);
     console.log(JSON.stringify(result, null, 2));
     process.exit(result.safe ? 0 : 2);

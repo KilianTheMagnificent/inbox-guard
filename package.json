@@ -1,7 +1,8 @@
 {
   "name": "inbox-guard",
   "version": "0.1.0",
-  "description": "Zero-dependency defensive validation and PII redaction for untrusted business emails, attachments, and CSV exports.",
+  "description": "Zero-dependency defensive validation and session-scoped PII redaction for untrusted business emails, attachments, and CSV exports.",
+  "homepage": "https://kilianthemagnificent.github.io",
   "type": "module",
   "main": "./src/index.mjs",
   "exports": {
@@ -22,7 +23,7 @@
     "pii",
     "prompt-injection"
   ],
-  "author": "Andre Romero-Carey (https://meetkestrel.com)",
+  "author": "Andre Romero-Carey (https://kilianthemagnificent.github.io)",
   "license": "MIT",
   "engines": {
     "node": ">=20.0.0"
