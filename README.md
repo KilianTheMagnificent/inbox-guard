@@ -24,6 +24,22 @@ Send invoice 42 to <EMAIL_1_9f2c1a>.
 
 On macOS, copy a sample message and run `pbpaste | node ./bin/inbox-guard.mjs redact -` to preview it in the terminal. The command reads the whole message locally and preserves its line breaks. Review the result before sharing it. Names and street addresses can remain in the text.
 
+## Screen a CSV export
+
+From the repository folder, check the included four-invoice example, then create a reviewed copy.
+
+```sh
+node ./bin/inbox-guard.mjs check-csv examples/invoices.csv
+node ./bin/inbox-guard.mjs sanitize-csv examples/invoices.csv --output reviewed-invoices.csv
+node ./bin/inbox-guard.mjs check-csv reviewed-invoices.csv
+```
+
+The first command reports row 3 and row 5, both in column 4. Counting starts at 1 and includes the header. The copy prefixes each flagged cell with an apostrophe and preserves the refund of `-42.50`. The last command reports five rows, four columns and zero findings. The report lists positions only. An existing output file is protected from replacement.
+
+Both commands accept `-` for piped input. Omitting `--output` writes the CSV to standard output. For a saved copy, use `--output` so the shell cannot truncate the source by redirecting output to the same path. Screening returns exit code 0 for a clear result, 2 for findings, or 1 for an input or command error. Creating a copy succeeds with exit code 0.
+
+Follow the [hands-on verification guide](docs/checking-a-change.md) to compare the files yourself or reuse the worksheet for another tool.
+
 ## Modules
 
 ### 1. Attachment screening (`src/attachment.mjs` — `checkAttachment`)
@@ -100,7 +116,7 @@ node ./bin/inbox-guard.mjs redact ./message.txt
 1. **Pattern-only PII redaction (`src/redact.mjs`):** Tokenization is strictly regex-based. It covers standard and quoted ASCII RFC 5321/5322 emails, hyphen/space/dash-separated US SSNs (`DDD-DD-DDDD`), NANP 10/11-digit phones, `+`-prefixed ITU-T E.164/E.123 phones (7–15 digits), and 12–19 digit contiguous or `4-4-4-1..7` / `4-4-4-4-1..3` / `4-6-5` grouped account/card numbers. It **does not** detect unstructured person or company names, street addresses, non-ASCII UTF-8/IDN email addresses (`josé@example.com`, `user@bücher.de`) unless converted to ASCII/Punycode upstream, alphanumeric IBANs, 8–11 digit domestic bank account numbers or contiguous 9-digit SSNs/ABA routing numbers (excluded to avoid high false-positive rates on order/invoice IDs; conversely, bare 12–19 digit integers such as 13-digit millisecond Unix timestamps are tokenized as `<ACCOUNT>`), or domestic non-NANP phone numbers written without a `+` country code. Token mappings live only in in-process memory.
 2. **Leading-header attachment checks (`src/attachment.mjs`):** `checkAttachment` inspects filenames and leading magic bytes at byte offset 0. It **does not** parse full container structures, unpack archives, run antivirus signatures, detect polyglot payloads appended after a valid `%PDF-` header, or inspect structurally valid PDF streams for `/JavaScript` / `/OpenAction` dictionaries or OOXML `.docx`/`.xlsx` packages for external template relationships. Archive extensions are flagged `UNINSPECTED_ARCHIVE_CONTAINER` and legacy binary Office extensions (`.doc`, `.xls`, `.ppt`) are blocked because macro streams inside OLE2 containers cannot be ruled out from header bytes alone.
 3. **Header & HTML email screening (`src/email.mjs`):** `inspectInboundEmail` checks RFC 5322 `From`/`Reply-To` headers and static HTML/CSS hiding constructs, not cryptographic sender authentication (`SPF`, `DKIM`, `DMARC` must be verified by the receiving mail gateway) or full browser layout/cascade computation across separate ancestor/descendant rules (e.g., `color:white` on a child whose white background is inherited from an outer table cell, or `Reply-To` across authorized parent/child subdomains such as `mail.vendor.example` vs `vendor.example`, which still raises a medium-severity domain-mismatch signal for caller review). `INSTRUCTION_OVERRIDE_PATTERN` rules are static phrase heuristics that an adaptive attacker can paraphrase; never rely on them in place of architectural privilege separation, tool allowlists, and human approval gates before external sends or financial actions.
-4. **Parsed CSV cell arrays (`src/csv.mjs`):** `sanitizeCsvRows` expects already-parsed 2D cell arrays, not raw CSV byte streams. Parse raw CSV files with an RFC-4180 parser before sanitization and emit rows via `serializeCsvRow`. Prefixing dangerous cells with `'` prevents formula execution in Excel, LibreOffice Calc, and Google Sheets, and leaves a literal leading `'` if the exported CSV is read by non-spreadsheet consumers.
+4. **CSV format and import settings.** The commands read UTF-8 comma-separated text in memory. Each record must have the same number of fields. Quoted fields can contain commas, doubled quotes, and embedded line breaks. The output uses CRLF record separators and preserves a UTF-8 byte-order mark when present. Supply spreadsheet exports with comma delimiters and import the result using the same delimiter. Spreadsheet type inference, display of the leading apostrophe and behavior after re-saving depend on the application and import settings. JavaScript callers can use `checkCsvText` and `sanitizeCsvText` for comma-separated text, or `sanitizeCsvRows` for arrays of cells. The raw-text report numbers coordinates from 1. The array API numbers indexes from 0.
 
 ## Tests
 
@@ -110,7 +126,7 @@ npm test
 
 ## Project status and how this was built
 
-The 0.1 series provides a local command-line tool and a JavaScript library. Andre directs development with AI coding assistants. For the piped redaction feature, Codex implemented the change and checked the command with invented messages. You can repeat that check using the example above.
+The 0.1 series provides a local command-line tool and a JavaScript library. Andre directs development with AI coding assistants. Codex implemented the piped redaction and CSV file commands and checked them with invented messages and invoices. You can repeat that check using the example above.
 
 Bug reports and documentation feedback are welcome. See the [contribution guide](CONTRIBUTING.md).
 

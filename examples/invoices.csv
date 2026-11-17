@@ -1,0 +1,6 @@
+Invoice,Vendor,Balance,Memo
+INV-001,"Alpine, Ltd.",-42.50,Refund received
+INV-002,Harbor Supplies,17.00,=2+3
+INV-003,Paper Mill,0.00,"First delivery
+Second delivery, marked ""received"""
+INV-004,Harbor Supplies,-7.25,+2+3

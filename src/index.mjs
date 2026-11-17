@@ -7,3 +7,4 @@ export {
 } from "./csv.mjs";
 export { inspectInboundEmail } from "./email.mjs";
 export { createRedactor } from "./redact.mjs";
+export { checkCsvText, sanitizeCsvText } from "./csv-file.mjs";
