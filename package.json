@@ -11,6 +11,15 @@
   "bin": {
     "inbox-guard": "./bin/inbox-guard.mjs"
   },
+  "files": [
+    "src/*.mjs",
+    "bin/*.mjs",
+    "test/*.test.mjs",
+    "examples/invoices.csv",
+    "docs/checking-a-change.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md"
+  ],
   "scripts": {
     "test": "node --test test/*.test.mjs"
   },
