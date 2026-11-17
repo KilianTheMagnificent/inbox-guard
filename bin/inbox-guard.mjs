@@ -8,7 +8,8 @@ const USAGE_TEXT =
   "Usage:\n" +
   "  inbox-guard check-attachment <path>\n" +
   "  inbox-guard inspect-email <json-file>\n" +
-  "  inbox-guard redact <text-file>";
+  "  inbox-guard redact <text-file|->\n" +
+  "    Use - to read UTF-8 text from standard input.";
 
 if (cmd === "--help" || cmd === "-h") {
   console.log(USAGE_TEXT);
@@ -38,9 +39,14 @@ try {
     console.log(JSON.stringify(result, null, 2));
     process.exit(result.safe ? 0 : 2);
   } else if (cmd === "redact") {
-    const raw = readFileSync(arg, "utf8");
-    const redactor = createRedactor();
-    console.log(redactor.redact(raw));
+    const fromStdin = arg === "-";
+    const raw = readFileSync(fromStdin ? 0 : arg, "utf8");
+    const redacted = createRedactor().redact(raw);
+    if (fromStdin) {
+      process.stdout.write(redacted);
+    } else {
+      console.log(redacted);
+    }
   } else {
     usage();
   }

@@ -6,6 +6,24 @@ Zero-dependency Node.js input screening and session-scoped PII tokenization for 
 
 Designed as a pre-triage filter before untrusted office inputs are sent to an external language model or opened by operations staff.
 
+## Try it on a message
+
+With Git and Node.js 20 or newer installed, run these commands in a terminal on macOS or Linux. Cloning provides everything the command needs.
+
+```sh
+git clone https://github.com/KilianTheMagnificent/inbox-guard.git
+cd inbox-guard
+printf '%s\n' 'Send invoice 42 to orders@example.org.' | node ./bin/inbox-guard.mjs redact -
+```
+
+The output will look like this. The six-character suffix varies on each run.
+
+```text
+Send invoice 42 to <EMAIL_1_9f2c1a>.
+```
+
+On macOS, copy a sample message and run `pbpaste | node ./bin/inbox-guard.mjs redact -` to preview it in the terminal. The command reads the whole message locally and preserves its line breaks. Review the result before sharing it. Names and street addresses can remain in the text.
+
 ## Modules
 
 ### 1. Attachment screening (`src/attachment.mjs` — `checkAttachment`)
@@ -89,6 +107,12 @@ node ./bin/inbox-guard.mjs redact ./message.txt
 ```bash
 npm test
 ```
+
+## Project status and how this was built
+
+The 0.1 series provides a local command-line tool and a JavaScript library. Andre directs development with AI coding assistants. For the piped redaction feature, Codex implemented the change and checked the command with invented messages. You can repeat that check using the example above.
+
+Bug reports and documentation feedback are welcome. See the [contribution guide](CONTRIBUTING.md).
 
 ## License
 

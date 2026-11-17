@@ -530,6 +530,17 @@ test("linear-time < 25 ms resilience on 200,000-byte adversarial HTML, CSV, file
   assert.ok(attachMs < 25, `Expected 200k filename scan < 25 ms, took ${attachMs.toFixed(2)} ms`);
 });
 
+test("redact - replaces repeated addresses consistently and preserves piped text formatting", () => {
+  const redactStdin = (input) => execFileSync(process.execPath, ["./bin/inbox-guard.mjs", "redact", "-"], {
+    input,
+    encoding: "utf8"
+  });
+  assert.equal(redactStdin(""), "");
+  assert.equal(redactStdin("Invoice 42\r\n"), "Invoice 42\r\n");
+  const output = redactStdin("To orders@example.org\r\nCopy orders@example.org — café");
+  assert.match(output, /^To (<EMAIL_1_[a-f0-9]{6}>)\r\nCopy \1 — café$/u);
+});
+
 test("CLI bin/inbox-guard.mjs screens attachments, emails, null JSON, --help, and redacts PII", () => {
   const tmp = mkdtempSync(join(tmpdir(), "inbox-guard-cli-"));
   try {
@@ -537,6 +548,14 @@ test("CLI bin/inbox-guard.mjs screens attachments, emails, null JSON, --help, an
       encoding: "utf8"
     });
     assert.match(helpOut, /Usage:/);
+    assert.match(helpOut, /standard input/);
+
+    const textPath = join(tmp, "message.txt");
+    writeFileSync(textPath, "To orders@example.org");
+    const redacted = execFileSync(process.execPath, ["./bin/inbox-guard.mjs", "redact", textPath], {
+      encoding: "utf8"
+    });
+    assert.match(redacted, /^To <EMAIL_1_[a-f0-9]{6}>\n$/);
 
     const pdfPath = join(tmp, "ok.pdf");
     writeFileSync(pdfPath, "%PDF-1.7\n1 0 obj\n");
