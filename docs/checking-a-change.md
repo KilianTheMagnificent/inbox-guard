@@ -4,7 +4,12 @@ Suppose an assistant says it fixed a CSV export. Ask which cells should change. 
 
 ## Try it with four invented invoices
 
-Use the repository's [sample export](../examples/invoices.csv). From the repository folder, run the commands below one at a time. All files in the example contain invented data. You need Node.js 20 or newer.
+You need Git and Node.js 20 or newer. To get the [sample export](../examples/invoices.csv) and the tool, open a terminal and run these commands. If you already have a copy, open its folder. All four invoices contain invented data.
+
+```sh
+git clone https://github.com/KilianTheMagnificent/inbox-guard.git
+cd inbox-guard
+```
 
 **1. Predict the result.** Open the sample in a text editor. The header counts as row 1. The memos for INV-002 and INV-004 start with arithmetic expressions. Those two cells should get a leading apostrophe. The refund of `-42.50` should keep its minus sign. The delivery note spans two lines inside one cell.
 

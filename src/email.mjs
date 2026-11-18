@@ -851,46 +851,36 @@ function containsHiddenStylesheetRule(rawStyleBlock) {
  * standard `<!-- ... -->`, and memoizes absence of closing terminators so
  * repeated unclosed `<!--` sequences never degrade to O(n^2) nor swallow trailing DOM.
  */
-function scanHtmlCommentEnd(html, lt, state) {
-  const len = html.length;
-  let k = lt + 4;
-  if (k < len && html[k] === ">") return k + 1;
-  if (k + 1 < len && html[k] === "-" && html[k + 1] === ">") return k + 2;
-  if (state.noTerminator) return -1;
+function skipHtmlComment(html, lt, state) {
+  const next = lt + 4;
+  if (html[next] === ">") return next + 1;
+  if (html.startsWith("->", next)) return next + 2;
 
-  while (k < len) {
-    let d = html.indexOf("--", k);
-    if (d === -1) {
-      state.noTerminator = true;
-      return -1;
-    }
-    while (d + 2 < len && html[d + 2] === "-") {
-      d += 1;
-    }
-    if (d + 2 < len && html[d + 2] === ">") {
-      return d + 3;
-    }
-    if (d + 3 < len && html[d + 2] === "!" && html[d + 3] === ">") {
-      return d + 4;
-    }
-    k = d + 2;
+  if (!state.noTerminator) {
+    const closing = /--!?>/g;
+    closing.lastIndex = next;
+    if (closing.test(html)) return closing.lastIndex;
+    state.noTerminator = true;
   }
 
-  state.noTerminator = true;
-  return -1;
+  // Without a closing delimiter, discard only the openers and inspect the rest.
+  const openers = /(?:<!--)+/y;
+  openers.lastIndex = lt;
+  openers.test(html);
+  return openers.lastIndex;
 }
 
 function extractStyleBlocks(html) {
   const blocks = [];
   const lower = html.toLowerCase();
+  if (!lower.includes("<style")) return blocks;
   const commentState = { noTerminator: false };
   let cursor = 0;
   while (cursor < html.length) {
     const lt = lower.indexOf("<", cursor);
     if (lt === -1) break;
     if (lower.startsWith("<!--", lt)) {
-      const end = scanHtmlCommentEnd(lower, lt, commentState);
-      cursor = end === -1 ? lt + 4 : end;
+      cursor = skipHtmlComment(lower, lt, commentState);
       continue;
     }
     if (!lower.startsWith("<style", lt)) {
@@ -948,8 +938,7 @@ function scanHtmlHiddenSignals(html) {
     if (lt === -1) break;
 
     if (html.startsWith("<!--", lt)) {
-      const commentEnd = scanHtmlCommentEnd(html, lt, commentState);
-      i = commentEnd === -1 ? lt + 4 : commentEnd;
+      i = skipHtmlComment(html, lt, commentState);
       continue;
     }
 
@@ -1053,8 +1042,7 @@ function extractHtmlTextForInspection(rawHtml) {
     out += rawHtml.slice(i, lt);
 
     if (rawHtml.startsWith("<!--", lt)) {
-      const commentEnd = scanHtmlCommentEnd(rawHtml, lt, commentState);
-      i = commentEnd === -1 ? lt + 4 : commentEnd;
+      i = skipHtmlComment(rawHtml, lt, commentState);
       continue;
     }
 
