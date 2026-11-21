@@ -2,19 +2,30 @@
   "name": "inbox-guard",
   "version": "0.1.0",
   "description": "Zero-dependency defensive validation and session-scoped PII redaction for untrusted business emails, attachments, and CSV exports.",
-  "homepage": "https://kilianthemagnificent.github.io",
+  "homepage": "https://github.com/KilianTheMagnificent/inbox-guard#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KilianTheMagnificent/inbox-guard.git"
+  },
+  "bugs": {
+    "url": "https://github.com/KilianTheMagnificent/inbox-guard/issues"
+  },
   "type": "module",
   "main": "./src/index.mjs",
+  "types": "./src/index.d.ts",
   "exports": {
-    ".": "./src/index.mjs"
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.mjs"
+    }
   },
   "bin": {
     "inbox-guard": "./bin/inbox-guard.mjs"
   },
   "files": [
     "src/*.mjs",
+    "src/*.d.ts",
     "bin/*.mjs",
-    "test/*.test.mjs",
     "examples/invoices.csv",
     "docs/checking-a-change.md",
     "CONTRIBUTING.md",

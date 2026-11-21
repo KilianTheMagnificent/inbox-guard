@@ -42,10 +42,10 @@ const TEXT_OR_LEGACY_DOC_EXTENSIONS = new Set([
   "csv", "tsv", "txt", "log", "md", "doc", "dot", "xls", "xlt", "ppt", "rtf", "eml"
 ]);
 
-const BIDI_OVERRIDE_RE = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/;
+const BIDI_OVERRIDE_RE = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
 const CONTROL_CHARS_RE = /[\x00-\x1F\x7F-\x9F]/;
 const DECEPTIVE_SPACE_OR_FILLER_RE =
-  /[\u00A0\u00AD\u034F\u115F\u1160\u1680\u17B4\u17B5\u180E\u2000-\u200D\u2028\u2029\u202F\u205F\u2060-\u2064\u2800\u3000\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB\u{E0000}-\u{E01EF}]/u;
+  /[\u00A0\u00AD\u034F\u115F\u1160\u1680\u17B4\u17B5\u180E\u2000-\u200D\u2028\u2029\u202F\u205F\u2060-\u2064\u2800\u3000\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB\u{E0000}-\u{E01EF}]/gu;
 const DOT_LEADER_SPOOF_RE = /[\u2024\u2025\u3002\uFE52\uFF0E]/;
 const WINDOWS_RESERVED_STEM_RE =
   /^(?:con|prn|aux|nul|com[1-9\u00b9\u00b2\u00b3]|lpt[1-9\u00b9\u00b2\u00b3])$/i;
@@ -119,7 +119,7 @@ function classifySignatureMatch(buf, validPrefixes) {
 }
 
 function isInvisibleOrWhitespaceChar(ch) {
-  return ch === "." || ch === "\x00" || /\s/u.test(ch) || DECEPTIVE_SPACE_OR_FILLER_RE.test(ch);
+  return ch === "." || ch === "\x00" || /\s/u.test(ch) || ch.search(DECEPTIVE_SPACE_OR_FILLER_RE) !== -1;
 }
 
 function stripTrailingDotsAndSpaces(str) {
@@ -296,7 +296,7 @@ export function checkAttachment({ filename, headBytes } = {}) {
     return { safe: false, extension: null, findings };
   }
 
-  if (BIDI_OVERRIDE_RE.test(rawName)) {
+  if (rawName.search(BIDI_OVERRIDE_RE) !== -1) {
     findings.push({
       code: "UNICODE_BIDI_SPOOF",
       severity: "critical",
@@ -368,7 +368,7 @@ export function checkAttachment({ filename, headBytes } = {}) {
   if (
     hasPaddingBeforeDot ||
     hasPaddingInsideExt ||
-    DECEPTIVE_SPACE_OR_FILLER_RE.test(rawName)
+    rawName.search(DECEPTIVE_SPACE_OR_FILLER_RE) !== -1
   ) {
     findings.push({
       code: "EXTENSION_PADDING",

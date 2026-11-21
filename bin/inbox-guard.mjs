@@ -1,7 +1,18 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync } from "node:fs";
 import { checkAttachment, checkCsvText, inspectInboundEmail, createRedactor, sanitizeCsvText } from "../src/index.mjs";
 import { writeNewFile } from "./new-file.mjs";
+
+function readHeadBytes(filePath, maxBytes = 4096) {
+  const fd = openSync(filePath, "r");
+  try {
+    const buf = Buffer.allocUnsafe(maxBytes);
+    const bytesRead = readSync(fd, buf, 0, maxBytes, 0);
+    return buf.subarray(0, bytesRead);
+  } finally {
+    closeSync(fd);
+  }
+}
 
 const [cmd, arg, ...options] = process.argv.slice(2);
 
@@ -28,9 +39,9 @@ if (!cmd || !arg) usage();
 
 try {
   if (cmd === "check-attachment") {
-    const bytes = readFileSync(arg);
+    const headBytes = readHeadBytes(arg, 4096);
     const filename = arg.split(/[/\\]/).pop() ?? arg;
-    const result = checkAttachment({ filename, headBytes: bytes.subarray(0, 4096) });
+    const result = checkAttachment({ filename, headBytes });
     console.log(JSON.stringify(result, null, 2));
     process.exit(result.safe ? 0 : 2);
   } else if (cmd === "inspect-email") {
@@ -59,11 +70,7 @@ try {
     const fromStdin = arg === "-";
     const raw = readFileSync(fromStdin ? 0 : arg, "utf8");
     const redacted = createRedactor().redact(raw);
-    if (fromStdin) {
-      process.stdout.write(redacted);
-    } else {
-      console.log(redacted);
-    }
+    process.stdout.write(redacted);
   } else {
     usage();
   }

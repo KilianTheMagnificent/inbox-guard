@@ -106,6 +106,26 @@ test("checkAttachment catches Windows/SMB trailing dots/spaces, fillers, dot-lea
     assert.ok(res.findings.some((f) => f.code === "UNICODE_BIDI_SPOOF"));
   }
 
+  // Multi-bidi and multi-filler characters must ALL be stripped when normalizing extensions
+  const multiBidi = checkAttachment({ filename: "invoice.\u202Ee\u202Ex\u202Ee" });
+  assert.equal(multiBidi.safe, false);
+  assert.equal(multiBidi.extension, "exe");
+  assert.ok(multiBidi.findings.some((f) => f.code === "UNICODE_BIDI_SPOOF"));
+  assert.ok(multiBidi.findings.some((f) => f.code === "BLOCKED_EXTENSION"));
+
+  const multiFiller = checkAttachment({ filename: "invoice.\u200Be\u200Bx\u200Be" });
+  assert.equal(multiFiller.safe, false);
+  assert.equal(multiFiller.extension, "exe");
+  assert.ok(multiFiller.findings.some((f) => f.code === "EXTENSION_PADDING"));
+  assert.ok(multiFiller.findings.some((f) => f.code === "BLOCKED_EXTENSION"));
+
+  // Consecutive calls with bidi/filler chars must never suffer regex /g lastIndex drift
+  for (let i = 0; i < 3; i++) {
+    const again = checkAttachment({ filename: "a\u202E.exe" });
+    assert.ok(again.findings.some((f) => f.code === "UNICODE_BIDI_SPOOF"));
+    assert.equal(again.extension, "exe");
+  }
+
   const c1Res = checkAttachment({ filename: "invoice\x85.pdf" });
   assert.equal(c1Res.safe, false);
   assert.ok(c1Res.findings.some((f) => f.code === "CONTROL_CHAR_FILENAME"));
@@ -555,7 +575,14 @@ test("CLI bin/inbox-guard.mjs screens attachments, emails, null JSON, --help, an
     const redacted = execFileSync(process.execPath, ["./bin/inbox-guard.mjs", "redact", textPath], {
       encoding: "utf8"
     });
-    assert.match(redacted, /^To <EMAIL_1_[a-f0-9]{6}>\n$/);
+    assert.match(redacted, /^To <EMAIL_1_[a-f0-9]{6}>$/);
+
+    const textWithNewline = join(tmp, "message-nl.txt");
+    writeFileSync(textWithNewline, "To orders@example.org\n");
+    const redactedNl = execFileSync(process.execPath, ["./bin/inbox-guard.mjs", "redact", textWithNewline], {
+      encoding: "utf8"
+    });
+    assert.match(redactedNl, /^To <EMAIL_1_[a-f0-9]{6}>\n$/);
 
     const pdfPath = join(tmp, "ok.pdf");
     writeFileSync(pdfPath, "%PDF-1.7\n1 0 obj\n");
