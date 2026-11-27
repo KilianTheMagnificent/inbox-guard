@@ -8,7 +8,7 @@ Designed as a pre-triage filter before untrusted office inputs are sent to an ex
 
 ## Try it on a message
 
-With Git and Node.js 20 or newer installed, run these commands in a terminal on macOS or Linux. Cloning provides everything the command needs.
+With Git and Node.js 22 or newer installed, run these commands in a terminal on macOS or Linux. Cloning provides everything the command needs.
 
 ```sh
 git clone https://github.com/KilianTheMagnificent/inbox-guard.git
@@ -72,7 +72,7 @@ Inspects an untrusted filename and optional leading byte slice (`Uint8Array`, `A
 
 ## Usage
 
-Requires Node.js 20+ (no external dependencies).
+Requires Node.js 22+ (no external dependencies).
 
 ```js
 import {

@@ -4,7 +4,7 @@ Suppose an assistant says it fixed a CSV export. Ask which cells should change. 
 
 ## Try it with four invented invoices
 
-You need Git and Node.js 20 or newer. To get the [sample export](../examples/invoices.csv) and the tool, open a terminal and run these commands. If you already have a copy, open its folder. All four invoices contain invented data.
+You need Git and Node.js 22 or newer. To get the [sample export](../examples/invoices.csv) and the tool, open a terminal and run these commands. If you already have a copy, open its folder. All four invoices contain invented data.
 
 ```sh
 git clone https://github.com/KilianTheMagnificent/inbox-guard.git

@@ -46,6 +46,6 @@
   "author": "Andre Romero-Carey (https://kilianthemagnificent.github.io)",
   "license": "MIT",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   }
 }
